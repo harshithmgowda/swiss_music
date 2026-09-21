@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../models/song.dart';
+import '../providers/player_provider.dart';
 import '../services/media_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/swiss_button.dart';
@@ -16,6 +19,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<SearchResultItem> _results = [];
   bool _isSearching = false;
+  String? _streamingItemId;
   String? _errorMessage;
   bool _hasSearched = false;
 
@@ -50,6 +54,57 @@ class _SearchScreenState extends State<SearchScreen> {
         setState(() {
           _isSearching = false;
         });
+      }
+    }
+  }
+
+  Future<void> _streamItem(SearchResultItem item) async {
+    setState(() => _streamingItemId = item.id);
+    try {
+      final streamUrl =
+          await MediaService.instance.getBestAudioStreamUrl(item.id);
+      if (streamUrl == null || streamUrl.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not obtain online audio stream.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      final onlineSong = Song(
+        id: 'stream_${item.id}',
+        title: item.title,
+        artist: item.author,
+        duration: item.duration?.inSeconds ?? 0,
+        filePath: streamUrl,
+        fileSize: 0,
+        format: 'ONLINE STREAM',
+        bitrate: 128,
+        thumbnailPath: item.thumbnailUrl,
+        downloadDate: 'STREAM',
+      );
+
+      if (mounted) {
+        context.read<PlayerProvider>().playSong(onlineSong);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Playing "${item.title}" online'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Stream failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _streamingItemId = null);
       }
     }
   }
@@ -308,18 +363,35 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             const SizedBox(width: 8),
 
-            // Action
-            SwissButton(
-              label: 'ANALYZE',
-              style: SwissButtonStyle.outline,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => UrlScreen(initialUrl: item.id),
-                  ),
-                );
-              },
+            // Actions
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SwissButton(
+                  label: 'STREAM',
+                  icon: Icons.play_arrow,
+                  isLoading: _streamingItemId == item.id,
+                  style: SwissButtonStyle.primary,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  onPressed: () => _streamItem(item),
+                ),
+                const SizedBox(height: 6),
+                SwissButton(
+                  label: 'DOWNLOAD',
+                  icon: Icons.download,
+                  style: SwissButtonStyle.outline,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => UrlScreen(initialUrl: item.id),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ],
         ),

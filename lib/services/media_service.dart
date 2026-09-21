@@ -90,6 +90,7 @@ class MediaService {
   final Map<String, Video> _videoCache = {};
   final Map<String, StreamManifest> _manifestCache = {};
   final Map<String, List<MediaStreamOption>> _videoOptionsCache = {};
+  final Map<String, List<MediaStreamOption>> _audioOptionsCache = {};
 
   /// Fetches real metadata for a video with caching
   Future<Video> getVideoMetadata(String videoId) async {
@@ -114,6 +115,42 @@ class MediaService {
       video: results[0] as Video,
       videoOptions: results[1] as List<MediaStreamOption>,
     );
+  }
+
+  /// Rapidly fetches video metadata, audio streams, and video streams in parallel.
+  Future<({
+    Video video,
+    List<MediaStreamOption> audioOptions,
+    List<MediaStreamOption> videoOptions,
+  })> getVideoAndAllStreams(String videoId) async {
+    final results = await Future.wait([
+      getVideoMetadata(videoId),
+      getAudioStreams(videoId),
+      getVideoStreams(videoId),
+    ]);
+
+    return (
+      video: results[0] as Video,
+      audioOptions: results[1] as List<MediaStreamOption>,
+      videoOptions: results[2] as List<MediaStreamOption>,
+    );
+  }
+
+  /// Returns a playable direct audio URL for online playback, preferring highest bitrate audio stream.
+  Future<String?> getBestAudioStreamUrl(String videoId) async {
+    try {
+      final audioOptions = await getAudioStreams(videoId);
+      if (audioOptions.isNotEmpty) {
+        return audioOptions.first.streamInfo.url.toString();
+      }
+      final videoOptions = await getVideoStreams(videoId);
+      if (videoOptions.isNotEmpty) {
+        return videoOptions.first.streamInfo.url.toString();
+      }
+    } catch (e) {
+      debugPrint('[MediaService] Error getting best audio stream url: $e');
+    }
+    return null;
   }
 
   /// Fetches real stream manifest trying fastest clients first
@@ -167,6 +204,10 @@ class MediaService {
 
   /// Fetches real available audio streams from the manifest.
   Future<List<MediaStreamOption>> getAudioStreams(String videoId) async {
+    if (_audioOptionsCache.containsKey(videoId)) {
+      return _audioOptionsCache[videoId]!;
+    }
+
     StreamManifest manifest;
     try {
       manifest = await getStreamManifest(videoId);
@@ -202,6 +243,7 @@ class MediaService {
     }
 
     options.sort((a, b) => b.bitrate.compareTo(a.bitrate));
+    _audioOptionsCache[videoId] = options;
     return options;
   }
 

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
+import '../models/song.dart';
+import '../providers/player_provider.dart';
 import '../services/media_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/download_option_tile.dart';
@@ -19,9 +22,12 @@ class UrlScreen extends StatefulWidget {
 class _UrlScreenState extends State<UrlScreen> {
   late final TextEditingController _urlController;
   bool _isAnalyzing = false;
+  bool _isStreaming = false;
   String? _errorMessage;
   Video? _video;
+  List<MediaStreamOption> _audioOptions = [];
   List<MediaStreamOption> _videoOptions = [];
+  bool _isAudioTab = true;
 
   @override
   void initState() {
@@ -46,6 +52,7 @@ class _UrlScreenState extends State<UrlScreen> {
       setState(() {
         _errorMessage = 'PLEASE ENTER A VALID PERMITTED MEDIA URL';
         _video = null;
+        _audioOptions = [];
         _videoOptions = [];
       });
       return;
@@ -56,6 +63,7 @@ class _UrlScreenState extends State<UrlScreen> {
       setState(() {
         _errorMessage = 'INVALID URL. PLEASE ENTER A VALID YOUTUBE URL';
         _video = null;
+        _audioOptions = [];
         _videoOptions = [];
       });
       return;
@@ -65,20 +73,24 @@ class _UrlScreenState extends State<UrlScreen> {
       _isAnalyzing = true;
       _errorMessage = null;
       _video = null;
+      _audioOptions = [];
       _videoOptions = [];
     });
 
     try {
-      final result = await MediaService.instance.getVideoAndStreams(videoId);
+      final result =
+          await MediaService.instance.getVideoAndAllStreams(videoId);
 
-      if (result.videoOptions.isEmpty) {
+      if (result.audioOptions.isEmpty && result.videoOptions.isEmpty) {
         setState(() {
-          _errorMessage = 'NO DIRECT VIDEO STREAMS AVAILABLE FOR THIS URL';
+          _errorMessage = 'NO DIRECT AUDIO OR VIDEO STREAMS AVAILABLE FOR THIS URL';
         });
       } else {
         setState(() {
           _video = result.video;
+          _audioOptions = result.audioOptions;
           _videoOptions = result.videoOptions;
+          _isAudioTab = result.audioOptions.isNotEmpty;
         });
       }
     } catch (e) {
@@ -90,6 +102,59 @@ class _UrlScreenState extends State<UrlScreen> {
         setState(() {
           _isAnalyzing = false;
         });
+      }
+    }
+  }
+
+  Future<void> _streamOnline() async {
+    if (_video == null) return;
+    setState(() => _isStreaming = true);
+    try {
+      final streamUrl =
+          await MediaService.instance.getBestAudioStreamUrl(_video!.id.value);
+      if (streamUrl == null || streamUrl.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not obtain online audio stream.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      final onlineSong = Song(
+        id: 'stream_${_video!.id.value}',
+        title: _video!.title,
+        artist: _video!.author,
+        duration: _video!.duration?.inSeconds ?? 0,
+        filePath: streamUrl,
+        fileSize:
+            _audioOptions.isNotEmpty ? _audioOptions.first.totalBytes : 0,
+        format: 'ONLINE STREAM',
+        bitrate: _audioOptions.isNotEmpty ? _audioOptions.first.bitrate : 128,
+        thumbnailPath: _video!.thumbnails.highResUrl,
+        downloadDate: 'STREAM',
+      );
+
+      if (mounted) {
+        context.read<PlayerProvider>().playSong(onlineSong);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Playing "${_video!.title}" online'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to stream audio: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isStreaming = false);
       }
     }
   }
@@ -321,6 +386,15 @@ class _UrlScreenState extends State<UrlScreen> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 16),
+                      // Online Streaming Action
+                      SwissButton(
+                        label: 'STREAM ONLINE (PLAY NOW)',
+                        icon: Icons.play_arrow,
+                        isLoading: _isStreaming,
+                        style: SwissButtonStyle.primary,
+                        onPressed: _streamOnline,
+                      ),
                     ],
                   ),
                 ),
@@ -331,7 +405,7 @@ class _UrlScreenState extends State<UrlScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'DOWNLOAD OPTIONS (MP4 VIDEO)',
+                      'DOWNLOAD FORMAT',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w900,
@@ -339,28 +413,111 @@ class _UrlScreenState extends State<UrlScreen> {
                         color: AppTheme.text,
                       ),
                     ),
-                    if (_videoOptions.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      color: AppTheme.badgeBg,
+                      child: Text(
+                        '${_isAudioTab ? _audioOptions.length : _videoOptions.length} OPTIONS',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.8,
+                          color: AppTheme.text,
                         ),
-                        color: AppTheme.primary,
-                        child: Text(
-                          '${_videoOptions.length} QUALITIES',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.8,
-                            color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // Swiss Tab Selector (Audio vs Video)
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _isAudioTab = true),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color:
+                                _isAudioTab ? AppTheme.text : AppTheme.surface,
+                            border: AppTheme.solidBorder,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.audiotrack,
+                                size: 16,
+                                color: _isAudioTab
+                                    ? AppTheme.background
+                                    : AppTheme.text,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'AUDIO (M4A) [${_audioOptions.length}]',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.8,
+                                  color: _isAudioTab
+                                      ? AppTheme.background
+                                      : AppTheme.text,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _isAudioTab = false),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color:
+                                !_isAudioTab ? AppTheme.text : AppTheme.surface,
+                            border: AppTheme.solidBorder,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.videocam,
+                                size: 16,
+                                color: !_isAudioTab
+                                    ? AppTheme.background
+                                    : AppTheme.text,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'VIDEO (MP4) [${_videoOptions.length}]',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.8,
+                                  color: !_isAudioTab
+                                      ? AppTheme.background
+                                      : AppTheme.text,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 12),
                 Text(
-                  'SELECT RESOLUTION TO DOWNLOAD (PLAYS SEAMLESSLY AS AUDIO/VIDEO IN APP)',
+                  _isAudioTab
+                      ? 'SELECT AUDIO BITRATE TO SAVE AS OFFLINE MUSIC'
+                      : 'SELECT VIDEO RESOLUTION TO DOWNLOAD (MP4)',
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
@@ -370,8 +527,8 @@ class _UrlScreenState extends State<UrlScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // Video stream options list
-                if (_videoOptions.isEmpty)
+                // Active options list
+                if ((_isAudioTab ? _audioOptions : _videoOptions).isEmpty)
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -380,7 +537,9 @@ class _UrlScreenState extends State<UrlScreen> {
                     ),
                     child: Center(
                       child: Text(
-                        'NO DIRECT VIDEO STREAMS FOUND FOR THIS MEDIA',
+                        _isAudioTab
+                            ? 'NO AUDIO STREAMS FOUND FOR THIS MEDIA'
+                            : 'NO DIRECT VIDEO STREAMS FOUND FOR THIS MEDIA',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -390,7 +549,7 @@ class _UrlScreenState extends State<UrlScreen> {
                     ),
                   )
                 else
-                  ..._videoOptions.map((opt) {
+                  ...(_isAudioTab ? _audioOptions : _videoOptions).map((opt) {
                     return DownloadOptionTile(
                       option: opt,
                       onDownload: () {

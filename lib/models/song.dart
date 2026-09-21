@@ -25,11 +25,22 @@ class Song {
     required this.downloadDate,
   });
 
-  bool get fileExists => File(filePath).existsSync();
-  bool get thumbnailExists => File(thumbnailPath).existsSync();
+  bool get isOnline =>
+      filePath.startsWith('http://') || filePath.startsWith('https://');
+
+  bool get fileExists =>
+      isOnline ? true : File(filePath).existsSync();
+
+  bool get thumbnailExists =>
+      thumbnailPath.startsWith('http://') ||
+              thumbnailPath.startsWith('https://')
+          ? true
+          : File(thumbnailPath).existsSync();
+
   bool get isVideo =>
-      format.toUpperCase().contains('VIDEO') ||
-      filePath.toLowerCase().endsWith('.mp4');
+      !isOnline &&
+      (format.toUpperCase().contains('VIDEO') ||
+          filePath.toLowerCase().endsWith('.mp4'));
 
   String get durationFormatted {
     final minutes = (duration ~/ 60).toString().padLeft(2, '0');

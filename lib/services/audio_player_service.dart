@@ -58,9 +58,29 @@ class AudioPlayerService {
 
   AudioSource _createAudioSource(Song song) {
     Uri? artUri;
-    if (song.thumbnailPath.isNotEmpty &&
-        File(song.thumbnailPath).existsSync()) {
-      artUri = Uri.file(song.thumbnailPath);
+    if (song.thumbnailPath.isNotEmpty) {
+      if (song.thumbnailPath.startsWith('http://') ||
+          song.thumbnailPath.startsWith('https://')) {
+        artUri = Uri.tryParse(song.thumbnailPath);
+      } else if (File(song.thumbnailPath).existsSync()) {
+        artUri = Uri.file(song.thumbnailPath);
+      }
+    }
+
+    if (song.isOnline ||
+        song.filePath.startsWith('http://') ||
+        song.filePath.startsWith('https://')) {
+      return AudioSource.uri(
+        Uri.parse(song.filePath),
+        tag: MediaItem(
+          id: song.id,
+          album: 'Swiss Online Stream',
+          title: song.title,
+          artist: song.artist,
+          artUri: artUri,
+          duration: Duration(seconds: song.duration),
+        ),
+      );
     }
 
     return AudioSource.file(

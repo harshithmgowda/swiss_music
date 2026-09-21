@@ -19,8 +19,11 @@ class MiniPlayer extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    final hasThumbnail =
-        song.thumbnailPath.isNotEmpty && File(song.thumbnailPath).existsSync();
+    final isRemoteThumb = song.thumbnailPath.startsWith('http://') ||
+        song.thumbnailPath.startsWith('https://');
+    final hasThumbnail = isRemoteThumb ||
+        (song.thumbnailPath.isNotEmpty &&
+            File(song.thumbnailPath).existsSync());
 
     return Container(
       decoration: BoxDecoration(
@@ -70,7 +73,17 @@ class MiniPlayer extends StatelessWidget {
                         color: AppTheme.badgeBg,
                         border: AppTheme.solidBorder,
                       ),
-                      child: hasThumbnail
+                      child: isRemoteThumb
+                          ? Image.network(
+                              song.thumbnailPath,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => Icon(
+                                Icons.music_note,
+                                size: 20,
+                                color: AppTheme.secondary,
+                              ),
+                            )
+                          : hasThumbnail
                           ? Image.file(
                               File(song.thumbnailPath),
                               fit: BoxFit.cover,

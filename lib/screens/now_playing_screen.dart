@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/player_provider.dart';
 import '../theme/app_theme.dart';
+import 'url_screen.dart';
 
 class NowPlayingScreen extends StatelessWidget {
   const NowPlayingScreen({super.key});
@@ -135,8 +136,11 @@ class NowPlayingScreen extends StatelessWidget {
       );
     }
 
-    final hasThumbnail =
-        song.thumbnailPath.isNotEmpty && File(song.thumbnailPath).existsSync();
+    final isRemoteThumb = song.thumbnailPath.startsWith('http://') ||
+        song.thumbnailPath.startsWith('https://');
+    final hasThumbnail = isRemoteThumb ||
+        (song.thumbnailPath.isNotEmpty &&
+            File(song.thumbnailPath).existsSync());
 
     return Scaffold(
       backgroundColor: AppTheme.background,
@@ -176,6 +180,19 @@ class NowPlayingScreen extends StatelessWidget {
           ],
         ),
         actions: [
+          if (song.isOnline)
+            IconButton(
+              icon: Icon(Icons.download, color: AppTheme.primary),
+              tooltip: 'Download Offline',
+              onPressed: () {
+                final videoId = song.id.replaceAll('stream_', '');
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => UrlScreen(initialUrl: videoId),
+                  ),
+                );
+              },
+            ),
           IconButton(
             icon: Icon(Icons.queue_music, color: AppTheme.text),
             tooltip: 'Queue',
@@ -197,7 +214,13 @@ class NowPlayingScreen extends StatelessWidget {
                     color: AppTheme.surface,
                     border: AppTheme.darkBorder,
                   ),
-                  child: hasThumbnail
+                  child: isRemoteThumb
+                      ? Image.network(
+                          song.thumbnailPath,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => _buildFallbackArt(),
+                        )
+                      : hasThumbnail
                       ? Image.file(
                           File(song.thumbnailPath),
                           fit: BoxFit.cover,
@@ -248,16 +271,17 @@ class NowPlayingScreen extends StatelessWidget {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: AppTheme.badgeBg,
+                      color:
+                          song.isOnline ? AppTheme.primary : AppTheme.badgeBg,
                       border: AppTheme.solidBorder,
                     ),
                     child: Text(
-                      'OFFLINE',
+                      song.isOnline ? 'ONLINE STREAM' : 'OFFLINE',
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 1.2,
-                        color: AppTheme.text,
+                        color: song.isOnline ? Colors.white : AppTheme.text,
                       ),
                     ),
                   ),
